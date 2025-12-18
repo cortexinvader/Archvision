@@ -1,4 +1,3 @@
-
 export type ShapeType = 'wall' | 'room' | 'door' | 'window' | 'furniture';
 
 export type ShapeVariant = 'rect' | 'l-shape' | 't-shape';
@@ -19,6 +18,8 @@ export interface HouseElement {
   opacity?: number;
   label?: string;
   wallHeight?: number;
+  thickness?: number;
+  isCeilingEnabled?: boolean;
 }
 
 export type ViewMode = '2D' | '3D';

@@ -8,7 +8,6 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        allowedHosts: ['archvision-2d-3d.onrender.com'], // Add this line
       },
       plugins: [react()],
       define: {

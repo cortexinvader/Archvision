@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { HouseElement } from "../types";
 
@@ -7,16 +6,17 @@ export async function getAISuggestions(elements: HouseElement[]) {
   const currentPlan = JSON.stringify(elements);
   
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-3-pro-preview',
     contents: `As an expert architect and interior designer, analyze this floor plan: ${currentPlan}.
     Focus on:
-    1. Space efficiency and flow.
-    2. Suggested color palette improvements for a modern aesthetic.
+    1. Space efficiency and flow (e.g., "The hallway is too narrow").
+    2. Suggested color palette improvements for a modern luxury aesthetic.
     3. Furniture placement optimization.
+    4. Structural integrity suggestions.
     
-    Keep response professional, bulleted, and high-value.`,
+    Keep response professional, bulleted, and high-value. Limit to 150 words.`,
     config: {
-      systemInstruction: "You are a world-class architectural consultant and interior designer. You favor modern, minimalist, and functional designs.",
+      systemInstruction: "You are a world-class architectural consultant. You provide concise, actionable, and elite-level design feedback.",
     }
   });
 
@@ -29,14 +29,14 @@ export async function generateNewLayout(description: string) {
     model: 'gemini-3-flash-preview',
     contents: `Design a high-end architectural floor plan for: "${description}". 
     
-    GUIDELINES:
-    - Use a professional color palette: Soft neutrals for walls, specific accent colors for rooms (e.g., #E0F2FE for bedrooms, #F1F5F9 for kitchen, #FEF3C7 for living).
-    - Ensure exterior walls encompass the rooms.
-    - Place doors at room intersections.
-    - Add windows to every exterior-facing room.
-    - Place essential furniture (beds in bedrooms, sofas in living).
+    CRITICAL COORDINATE SYSTEM:
+    - Origin (0,0) is top-left. Max bounds are 1200x900.
+    - Rooms should be clustered to form a cohesive house.
+    - Walls should align with room edges.
+    - Use professional hex colors.
+    - Material types: plaster, wood, glass, brick, stone, metal.
     
-    Return a JSON array of objects representing HouseElements. Coordinate space 1200x900.`,
+    Return a JSON array of HouseElements.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -52,7 +52,7 @@ export async function generateNewLayout(description: string) {
             height: { type: Type.NUMBER },
             rotation: { type: Type.NUMBER },
             label: { type: Type.STRING },
-            color: { type: Type.STRING, description: "Professional hex color code" },
+            color: { type: Type.STRING },
             material: { type: Type.STRING, enum: ["plaster", "wood", "glass", "brick", "stone", "metal"] }
           },
           required: ["type", "x", "y", "width", "height", "rotation", "color"]
@@ -62,7 +62,9 @@ export async function generateNewLayout(description: string) {
   });
 
   try {
-    return JSON.parse(response.text);
+    const text = response.text;
+    if (!text) return null;
+    return JSON.parse(text);
   } catch (e) {
     console.error("AI Layout Parse Error", e);
     return null;
