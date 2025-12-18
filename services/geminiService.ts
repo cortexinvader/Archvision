@@ -2,18 +2,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { HouseElement } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export async function getAISuggestions(elements: HouseElement[]) {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   const currentPlan = JSON.stringify(elements);
   
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Analyze this 2D house floor plan (JSON format) and suggest improvements or identify flaws: ${currentPlan}.
-    Focus on living flow, window placement for light, and room accessibility. 
-    Keep the response concise and friendly.`,
+    contents: `As an expert architect and interior designer, analyze this floor plan: ${currentPlan}.
+    Focus on:
+    1. Space efficiency and flow.
+    2. Suggested color palette improvements for a modern aesthetic.
+    3. Furniture placement optimization.
+    
+    Keep response professional, bulleted, and high-value.`,
     config: {
-      systemInstruction: "You are a senior architect assistant. Provide helpful, professional advice on residential floor plans.",
+      systemInstruction: "You are a world-class architectural consultant and interior designer. You favor modern, minimalist, and functional designs.",
     }
   });
 
@@ -21,12 +24,19 @@ export async function getAISuggestions(elements: HouseElement[]) {
 }
 
 export async function generateNewLayout(description: string) {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Create a simple house floor plan based on this request: "${description}". 
-    Return the layout as a JSON array of objects with the following structure:
-    [{ "type": "room" | "wall" | "door" | "window", "x": number, "y": number, "width": number, "height": number, "label": string }]
-    Use a coordinate system where the house fits in a 800x600 area.`,
+    contents: `Design a high-end architectural floor plan for: "${description}". 
+    
+    GUIDELINES:
+    - Use a professional color palette: Soft neutrals for walls, specific accent colors for rooms (e.g., #E0F2FE for bedrooms, #F1F5F9 for kitchen, #FEF3C7 for living).
+    - Ensure exterior walls encompass the rooms.
+    - Place doors at room intersections.
+    - Add windows to every exterior-facing room.
+    - Place essential furniture (beds in bedrooms, sofas in living).
+    
+    Return a JSON array of objects representing HouseElements. Coordinate space 1200x900.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -34,14 +44,18 @@ export async function generateNewLayout(description: string) {
         items: {
           type: Type.OBJECT,
           properties: {
-            type: { type: Type.STRING },
+            type: { type: Type.STRING, enum: ["room", "wall", "door", "window", "furniture"] },
+            variant: { type: Type.STRING, enum: ["rect", "l-shape", "t-shape"] },
             x: { type: Type.NUMBER },
             y: { type: Type.NUMBER },
             width: { type: Type.NUMBER },
             height: { type: Type.NUMBER },
-            label: { type: Type.STRING }
+            rotation: { type: Type.NUMBER },
+            label: { type: Type.STRING },
+            color: { type: Type.STRING, description: "Professional hex color code" },
+            material: { type: Type.STRING, enum: ["plaster", "wood", "glass", "brick", "stone", "metal"] }
           },
-          required: ["type", "x", "y", "width", "height"]
+          required: ["type", "x", "y", "width", "height", "rotation", "color"]
         }
       }
     }
@@ -50,7 +64,7 @@ export async function generateNewLayout(description: string) {
   try {
     return JSON.parse(response.text);
   } catch (e) {
-    console.error("Failed to parse AI layout", e);
+    console.error("AI Layout Parse Error", e);
     return null;
   }
 }

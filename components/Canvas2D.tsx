@@ -1,21 +1,65 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { HouseElement } from '../types';
+import { HouseElement, ShapeVariant } from '../types';
 import { GRID_SIZE, SHAPE_PALETTE } from '../constants';
 
 interface Canvas2DProps {
   elements: HouseElement[];
   selectedId: string | null;
   onUpdateElements: (elements: HouseElement[]) => void;
-  onSelectElement: (id: string | null) => void;
+  onSelectElement: (id: string | null, openInspector?: boolean) => void;
   showGrid: boolean;
 }
 
 const Canvas2D: React.FC<Canvas2DProps> = ({ elements, selectedId, onUpdateElements, onSelectElement, showGrid }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Transform states
+  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isResizing, setIsResizing] = useState(false);
+  const [longPressTimer, setLongPressTimer] = useState<number | null>(null);
+  const [isMovingMode, setIsMovingMode] = useState(false);
+  const [spacePressed, setSpacePressed] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => { if (e.code === 'Space') setSpacePressed(true); };
+    const handleKeyUp = (e: KeyboardEvent) => { if (e.code === 'Space') setSpacePressed(false); };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  const drawShape = (ctx: CanvasRenderingContext2D, variant: ShapeVariant, w: number, h: number) => {
+    ctx.beginPath();
+    if (variant === 'l-shape') {
+      const thick = Math.min(w, h) * 0.35;
+      ctx.moveTo(-w/2, -h/2);
+      ctx.lineTo(-w/2 + thick, -h/2);
+      ctx.lineTo(-w/2 + thick, h/2 - thick);
+      ctx.lineTo(w/2, h/2 - thick);
+      ctx.lineTo(w/2, h/2);
+      ctx.lineTo(-w/2, h/2);
+    } else if (variant === 't-shape') {
+      const thick = Math.min(w, h) * 0.35;
+      ctx.moveTo(-w/2, -h/2);
+      ctx.lineTo(w/2, -h/2);
+      ctx.lineTo(w/2, -h/2 + thick);
+      ctx.lineTo(thick/2, -h/2 + thick);
+      ctx.lineTo(thick/2, h/2);
+      ctx.lineTo(-thick/2, h/2);
+      ctx.lineTo(-thick/2, -h/2 + thick);
+      ctx.lineTo(-w/2, -h/2 + thick);
+    } else {
+      ctx.rect(-w / 2, -h / 2, w, h);
+    }
+    ctx.closePath();
+  };
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -23,61 +67,76 @@ const Canvas2D: React.FC<Canvas2DProps> = ({ elements, selectedId, onUpdateEleme
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.scale, transform.scale);
 
     if (showGrid) {
+      const startX = -transform.x / transform.scale;
+      const startY = -transform.y / transform.scale;
+      const endX = (canvas.width - transform.x) / transform.scale;
+      const endY = (canvas.height - transform.y) / transform.scale;
+
       ctx.strokeStyle = '#f1f5f9';
-      ctx.lineWidth = 1;
-      for (let x = 0; x <= canvas.width; x += GRID_SIZE) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      ctx.lineWidth = 1 / transform.scale;
+      for (let x = Math.floor(startX / GRID_SIZE) * GRID_SIZE; x <= endX; x += GRID_SIZE) {
+        ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
       }
-      for (let y = 0; y <= canvas.height; y += GRID_SIZE) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      for (let y = Math.floor(startY / GRID_SIZE) * GRID_SIZE; y <= endY; y += GRID_SIZE) {
+        ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
       }
     }
 
     elements.forEach(el => {
       const isSelected = el.id === selectedId;
-      const paletteItem = SHAPE_PALETTE.find(p => p.type === el.type);
+      const paletteItem = SHAPE_PALETTE.find(p => p.type === el.type && p.variant === el.variant);
       
       ctx.save();
       ctx.translate(el.x + el.width / 2, el.y + el.height / 2);
       ctx.rotate((el.rotation * Math.PI) / 180);
       
-      // Shadow
-      ctx.shadowBlur = isSelected ? 20 : 5;
+      ctx.shadowBlur = isSelected ? 20 / transform.scale : 4 / transform.scale;
       ctx.shadowColor = isSelected ? 'rgba(99, 102, 241, 0.4)' : 'rgba(0,0,0,0.05)';
       
-      ctx.fillStyle = el.color || paletteItem?.color || '#ccc';
-      ctx.fillRect(-el.width / 2, -el.height / 2, el.width, el.height);
+      ctx.fillStyle = el.color || paletteItem?.color || '#cbd5e1';
+      drawShape(ctx, el.variant || 'rect', el.width, el.height);
+      ctx.fill();
       
       if (isSelected) {
         ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(-el.width / 2, -el.height / 2, el.width, el.height);
+        ctx.lineWidth = 2 / transform.scale;
+        ctx.stroke();
         
         // Resize handle
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#6366f1';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(el.width / 2, el.height / 2, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        if (!isMovingMode) {
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#6366f1';
+          ctx.lineWidth = 2 / transform.scale;
+          ctx.beginPath();
+          ctx.arc(el.width / 2, el.height / 2, 8 / transform.scale, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
       }
 
       if (el.label || el.type === 'room') {
         ctx.shadowBlur = 0;
         ctx.fillStyle = isSelected ? '#4f46e5' : '#475569';
-        ctx.font = 'bold 11px Inter';
+        ctx.font = `bold ${Math.max(8, 11 / transform.scale)}px Inter`;
         ctx.textAlign = 'center';
-        ctx.fillText((el.label || el.type).toUpperCase(), 0, 4);
+        ctx.fillText((el.label || el.type).toUpperCase(), 0, 4 / transform.scale);
       }
       
       ctx.restore();
     });
-  }, [elements, selectedId, showGrid]);
+    ctx.restore();
+  }, [elements, selectedId, showGrid, transform, isMovingMode]);
 
   useEffect(() => {
     const resize = () => {
@@ -92,52 +151,106 @@ const Canvas2D: React.FC<Canvas2DProps> = ({ elements, selectedId, onUpdateEleme
     return () => window.removeEventListener('resize', resize);
   }, [draw]);
 
-  useEffect(() => { draw(); }, [elements, selectedId, draw, showGrid]);
+  useEffect(() => { draw(); }, [elements, selectedId, draw, showGrid, transform]);
 
-  const handleStart = (clientX: number, clientY: number) => {
+  const screenToWorld = (sx: number, sy: number) => {
+    return {
+      x: (sx - transform.x) / transform.scale,
+      y: (sy - transform.y) / transform.scale
+    };
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    const zoomIntensity = 0.1;
+    const wheel = e.deltaY < 0 ? 1 : -1;
+    const zoom = Math.exp(wheel * zoomIntensity);
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const newScale = Math.min(Math.max(0.1, transform.scale * zoom), 5);
+    
+    // Zoom centered on cursor
+    setTransform(prev => ({
+      scale: newScale,
+      x: mouseX - (mouseX - prev.x) * (newScale / prev.scale),
+      y: mouseY - (mouseY - prev.y) * (newScale / prev.scale)
+    }));
+  };
+
+  const handleStart = (clientX: number, clientY: number, button: number) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
 
-    if (selectedId) {
-      const el = elements.find(item => item.id === selectedId);
-      if (el) {
-        const rx = el.x + el.width;
-        const ry = el.y + el.height;
-        if (Math.abs(mx - rx) < 25 && Math.abs(my - ry) < 25) { // Increased hit area for mobile
-          setIsResizing(true);
-          return;
-        }
+    if (button === 2 || spacePressed) {
+      setIsPanning(true);
+      setDragOffset({ x: mx - transform.x, y: my - transform.y });
+      return;
+    }
+
+    const world = screenToWorld(mx, my);
+
+    const el = selectedId ? elements.find(item => item.id === selectedId) : null;
+    if (el) {
+      const rx = el.x + el.width;
+      const ry = el.y + el.height;
+      // Handle check scaled for zoom
+      const handleSize = 25 / transform.scale;
+      if (Math.abs(world.x - rx) < handleSize && Math.abs(world.y - ry) < handleSize) {
+        setIsResizing(true);
+        return;
       }
     }
 
     const clicked = [...elements].reverse().find(el => 
-      mx >= el.x && mx <= el.x + el.width &&
-      my >= el.y && my <= el.y + el.height
+      world.x >= el.x && world.x <= el.x + el.width &&
+      world.y >= el.y && world.y <= el.y + el.height
     );
 
     if (clicked) {
-      onSelectElement(clicked.id);
-      setIsDragging(true);
-      setDragOffset({ x: mx - clicked.x, y: my - clicked.y });
+      const timer = window.setTimeout(() => {
+        setIsDragging(true);
+        setIsMovingMode(true);
+        onSelectElement(clicked.id, false);
+      }, 300);
+      setLongPressTimer(timer);
+      setDragOffset({ x: world.x - clicked.x, y: world.y - clicked.y });
     } else {
       onSelectElement(null);
     }
   };
 
   const handleMove = (clientX: number, clientY: number) => {
-    if (!isDragging && !isResizing) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
 
+    if (isPanning) {
+      setTransform(prev => ({ ...prev, x: mx - dragOffset.x, y: my - dragOffset.y }));
+      return;
+    }
+
+    const world = screenToWorld(mx, my);
+
+    if (!isDragging && !isResizing && longPressTimer) {
+      const startWorld = screenToWorld(mx - (dragOffset.x * transform.scale), my - (dragOffset.y * transform.scale));
+      if (Math.abs(world.x - startWorld.x) > 5) {
+        clearTimeout(longPressTimer);
+        setLongPressTimer(null);
+      }
+    }
+
     if (isResizing && selectedId) {
       onUpdateElements(elements.map(el => {
         if (el.id === selectedId) {
-          const newW = Math.max(GRID_SIZE, Math.round((mx - el.x) / GRID_SIZE) * GRID_SIZE);
-          const newH = Math.max(GRID_SIZE, Math.round((my - el.y) / GRID_SIZE) * GRID_SIZE);
+          const newW = Math.max(GRID_SIZE, Math.round((world.x - el.x) / GRID_SIZE) * GRID_SIZE);
+          const newH = Math.max(GRID_SIZE, Math.round((world.y - el.y) / GRID_SIZE) * GRID_SIZE);
           return { ...el, width: newW, height: newH };
         }
         return el;
@@ -145,8 +258,8 @@ const Canvas2D: React.FC<Canvas2DProps> = ({ elements, selectedId, onUpdateEleme
     } else if (isDragging && selectedId) {
       onUpdateElements(elements.map(el => {
         if (el.id === selectedId) {
-          const newX = Math.round((mx - dragOffset.x) / GRID_SIZE) * GRID_SIZE;
-          const newY = Math.round((my - dragOffset.y) / GRID_SIZE) * GRID_SIZE;
+          const newX = Math.round((world.x - dragOffset.x) / GRID_SIZE) * GRID_SIZE;
+          const newY = Math.round((world.y - dragOffset.y) / GRID_SIZE) * GRID_SIZE;
           return { ...el, x: newX, y: newY };
         }
         return el;
@@ -154,30 +267,64 @@ const Canvas2D: React.FC<Canvas2DProps> = ({ elements, selectedId, onUpdateEleme
     }
   };
 
-  const handleEnd = () => {
+  const handleEnd = (clientX: number, clientY: number) => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+      if (!isMovingMode) {
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (rect) {
+          const world = screenToWorld(clientX - rect.left, clientY - rect.top);
+          const clicked = [...elements].reverse().find(el => 
+            world.x >= el.x && world.x <= el.x + el.width &&
+            world.y >= el.y && world.y <= el.y + el.height
+          );
+          if (clicked) onSelectElement(clicked.id, true);
+        }
+      }
+    }
     setIsDragging(false);
     setIsResizing(false);
+    setIsMovingMode(false);
+    setIsPanning(false);
   };
 
   return (
-    <div className="w-full h-full relative bg-white overflow-hidden cursor-crosshair">
+    <div className="w-full h-full relative bg-slate-50 overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
       <canvas
         ref={canvasRef}
-        onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
+        onWheel={handleWheel}
+        onMouseDown={(e) => handleStart(e.clientX, e.clientY, e.button)}
         onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-        onTouchStart={(e) => {
-          const touch = e.touches[0];
-          handleStart(touch.clientX, touch.clientY);
-        }}
-        onTouchMove={(e) => {
-          const touch = e.touches[0];
-          handleMove(touch.clientX, touch.clientY);
-        }}
-        onTouchEnd={handleEnd}
-        className="w-full h-full block touch-none"
+        onMouseUp={(e) => handleEnd(e.clientX, e.clientY)}
+        onMouseLeave={(e) => handleEnd(0,0)}
+        onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY, 0)}
+        onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchEnd={(e) => handleEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}
+        className={`w-full h-full block touch-none ${isPanning || spacePressed ? 'cursor-grabbing' : 'cursor-crosshair'}`}
       />
+      
+      {/* Navigator Overlay */}
+      <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2 pointer-events-none">
+        <div className="bg-white/80 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-4 pointer-events-auto">
+          <button onClick={() => setTransform(prev => ({ ...prev, scale: Math.max(0.1, prev.scale - 0.1) }))} className="text-slate-400 hover:text-indigo-600 font-bold p-1">－</button>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest min-w-[40px] text-center">
+            {Math.round(transform.scale * 100)}%
+          </span>
+          <button onClick={() => setTransform(prev => ({ ...prev, scale: Math.min(5, prev.scale + 0.1) }))} className="text-slate-400 hover:text-indigo-600 font-bold p-1">＋</button>
+          <div className="w-px h-4 bg-slate-200" />
+          <button onClick={() => setTransform({ x: 0, y: 0, scale: 1 })} className="text-[9px] font-black text-indigo-600 uppercase hover:underline">Reset</button>
+        </div>
+        <div className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-white/50 px-3 py-1 rounded-full border border-slate-100">
+          Right-Click or Space to Pan
+        </div>
+      </div>
+
+      {isMovingMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg pointer-events-none animate-bounce">
+          Precision Move Active
+        </div>
+      )}
     </div>
   );
 };

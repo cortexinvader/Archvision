@@ -1,11 +1,14 @@
 
 export type ShapeType = 'wall' | 'room' | 'door' | 'window' | 'furniture';
 
+export type ShapeVariant = 'rect' | 'l-shape' | 't-shape';
+
 export type MaterialType = 'plaster' | 'wood' | 'glass' | 'brick' | 'stone' | 'metal';
 
 export interface HouseElement {
   id: string;
   type: ShapeType;
+  variant?: ShapeVariant;
   x: number;
   y: number;
   width: number;
